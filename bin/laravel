@@ -9,6 +9,107 @@ if (file_exists(__DIR__.'/../../../autoload.php')) {
 
 $app = new Symfony\Component\Console\Application('Laravel Installer', '5.24.6');
 
+// Support a global `--update` flag to update the installer and exit.
+if (isset($argv) && (!empty($argv) && (in_array('--update', $argv, true) || preg_grep('/^--update=/', $argv)))) {
+    echo "Updating Laravel Installer...\n\n";
+
+    // Auto-detect how the current `laravel` executable was installed and default accordingly.
+    $finder = new Symfony\Component\Process\ExecutableFinder();
+    $laravelPath = $finder->find('laravel') ?: (isset($argv[0]) ? $argv[0] : __FILE__);
+    $laravelPath = is_string($laravelPath) ? $laravelPath : '';
+
+    $isHerd = str_contains($laravelPath, DIRECTORY_SEPARATOR.'Herd'.DIRECTORY_SEPARATOR);
+    $isHerdLite = str_contains($laravelPath, 'herd-lite') || str_contains($laravelPath, 'php.new');
+
+    $detectedDefault = 'composer';
+
+    if ($isHerd) {
+        $detectedDefault = 'herd';
+    } elseif ($isHerdLite) {
+        $detectedDefault = 'php.new';
+    }
+
+    $prompt = function ($message, $default) {
+        if (function_exists('readline')) {
+            $line = readline($message);
+        } else {
+            echo $message;
+            $line = fgets(STDIN);
+        }
+
+        $line = trim((string) $line);
+
+        return $line === '' ? $default : strtolower($line);
+    };
+
+    // Allow non-interactive usage: --update=composer|herd|php.new
+    $explicit = null;
+    foreach ($argv as $arg) {
+        if (str_starts_with($arg, '--update=')) {
+            $explicit = strtolower(substr($arg, strlen('--update=')));
+            break;
+        }
+    }
+
+    $method = $explicit ?? $prompt("How did you install the Laravel Installer? [composer/herd/php.new] ({$detectedDefault}): ", $detectedDefault);
+
+    if ($method === 'composer') {
+        echo "Running: composer global update laravel/installer\n\n";
+        passthru('composer global update laravel/installer', $exitCode);
+
+        if ($exitCode === 0) {
+            echo "Laravel Installer updated successfully.\n";
+        } else {
+            echo "Failed to update Laravel Installer (exit code: {$exitCode}).\n";
+        }
+
+        exit($exitCode);
+    }
+
+    if ($method === 'herd') {
+        echo "To update via Herd: open Herd > Settings > PHP > Laravel Installer and click the \"Update\" button.\n\n";
+
+        $confirm = $prompt("Have you updated via Herd? (y/N): ", 'n');
+
+        if (strtolower($confirm) === 'y') {
+            echo "Continuing after Herd update.\n";
+            exit(0);
+        }
+
+        echo "Aborted. Please update via Herd and re-run this command when ready.\n";
+        exit(1);
+    }
+
+    if (in_array($method, ['php.new', 'phpnew', 'herd-lite'], true)) {
+        switch (PHP_OS_FAMILY) {
+            case 'Windows':
+                $cmd = "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://php.new/install/windows'))";
+                break;
+            case 'Darwin':
+                $cmd = '/bin/bash -c "$(curl -fsSL https://php.new/install/mac)"';
+                break;
+            default:
+                $cmd = '/bin/bash -c "$(curl -fsSL https://php.new/install/linux)"';
+        }
+
+        echo "Recommended update command:\n{$cmd}\n\n";
+
+        $confirm = $prompt("Run this command now? (y/N): ", 'n');
+
+        if (strtolower($confirm) === 'y') {
+            passthru($cmd, $exitCode);
+            exit($exitCode);
+        }
+
+        echo "Aborted. Please run the command above to update and re-run this command when ready.\n";
+        exit(1);
+    }
+
+    echo "Unknown option '{$method}', defaulting to composer update.\n";
+    passthru('composer global update laravel/installer', $exitCode);
+    exit($exitCode);
+}
+
 if (method_exists($app, 'addCommand')) {
     $app->addCommand(new Laravel\Installer\Console\NewCommand);
 } else {
